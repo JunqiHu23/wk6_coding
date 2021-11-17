@@ -5,26 +5,69 @@ date: "2021/11/17"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r library}
+#first library a few packages that we will use during the practical
+#note you may need to install them first...
+library(spatstat)
+library(here)
+library(sp)
+library(rgeos)
+library(maptools)
+library(GISTools)
+library(tmap)
+library(sf)
+library(geojson)
+library(geojsonio)
+library(tmaptools)
+```
+```{r setting up data}
+LondonBoroughs <- st_read(here::here('data',
+                                     'statistical-gis-boundaries-london',
+                                     'ESRI',
+                                     'London_Borough_Excluding_MHW.shp'))
+qtm(LondonBoroughs)
+```
+```{r}
+library(stringr)
+BoroughMap <- LondonBoroughs%>%
+  dplyr::filter(str_detect(GSS_CODE,'^E09'))%>%
+  st_transform(.,27700)
+
+qtm(BoroughMap)
+summary(BoroughMap)
+```
+```{r}
+#now get the location of all blue plaques in the city
+BluePlaques <- st_read(here::here('data',
+                                  'open-plaques-london-2018-04-08.geojson'))%>%
+  st_transform(.,27700)
+
+summary(BluePlaques)
+```
+```{r}
+#plot the blue plaques in the city
+tmap_mode('plot')
+
+tm_shape(BoroughMap)+
+  tm_polygons(col = 'red',alpha = 0.5)+
+tm_shape(BluePlaques)+
+  tm_dots(col = 'blue')
+  
+```
+```{r 6.5.1 data cleaning}
+#remove duplicates
+library(tidyverse)
+
+library(sf)
+BluePlaques <- distinct(BluePlaques)
+```
+```{r 6.5.2 spatial subsetting}
+BluePlaquesSub <- BluePlaques[BoroughMap,]
+
+tmap_mode('plot')
+tm_shape(BoroughMap)+
+  tm_polygons(col='red',alpha = 0.5)+
+tm_shape(BluePlaquesSub)+
+  tm_dots(col='blue')
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
-```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
