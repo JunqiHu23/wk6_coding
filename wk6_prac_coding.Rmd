@@ -20,7 +20,9 @@ library(geojson)
 library(geojsonio)
 library(tmaptools)
 ```
-```{r setting up data}
+
+#setting up data
+```{r read data}
 LondonBoroughs <- st_read(here::here('data',
                                      'statistical-gis-boundaries-london',
                                      'ESRI',
@@ -62,12 +64,55 @@ library(sf)
 BluePlaques <- distinct(BluePlaques)
 ```
 ```{r 6.5.2 spatial subsetting}
-BluePlaquesSub <- BluePlaques[BoroughMap,]
+BluePlaquesSub <- BluePlaques[BoroughMap,]#点在map区域中
 
 tmap_mode('plot')
 tm_shape(BoroughMap)+
   tm_polygons(col='red',alpha = 0.5)+
 tm_shape(BluePlaquesSub)+
   tm_dots(col='blue')
+```
+
+```{r 6.5.3 Study area}
+#extract the borough
+Harrow <- BoroughMap%>%
+  filter(.,NAME=='Harrow')
+
+tm_shape(Harrow)+
+  tm_polygons(col=NA,alpha=0.5)
+```
+```{r}
+BluePlaquesHarrowSub <- BluePlaquesSub[Harrow,]
+
+tmap_mode('plot')
+
+tm_shape(Harrow)+
+  tm_polygons(col = 'red',alpha=0.5)+
+tm_shape(BluePlaquesHarrowSub)+
+  tm_dots(col='blue',size=0.1)
+
+#now set a window as the borough boundary
+window <- as.owin(Harrow)
+plot(window)
+```
+```{r}
+#create a point pattern (ppp) object
+BluePlaquesHarrowSub <- BluePlaquesHarrowSub%>%
+  as(., 'Spatial')
+
+BluePlaquesHarrowSub.ppp <- ppp(x=BluePlaquesHarrowSub@coords[,1],
+                                y=BluePlaquesHarrowSub@coords[,2],
+                                window=window)
+
+BluePlaquesHarrowSub@coords[,1]
+
+BluePlaquesHarrowSub.ppp%>%
+  plot(.,pch=15,cex=0.5,     #pch为填充形状，pch=16实心圆
+       main='Blue Plaques Harrow')
+```
+
+#6.6 point pattern analysis
+```{r kernel density estimation}
+
 ```
 
