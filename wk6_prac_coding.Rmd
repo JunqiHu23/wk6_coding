@@ -286,9 +286,192 @@ autoplot.OpenStreetMap(basemap_bng)+
                  colour=dbcluster,
                  fill=dbcluster))+
   geom_polygon(data=chulls,
-               aex(coords.x1,coords.x2,
+               aes(coords.x1,coords.x2,
                    group=dbcluster,
                    fill=dbcluster),
                alpha=0.5)
+```
+
+
+#6.9 Analysing Spatial Autocorrelation with Moran’s I, LISA and friends
+```{r}
+library(here)
+library(janitor)
+library(dplyr)
+
+LondonWards <- st_read(here::here('data',
+                                  'statistical-gis-boundaries-london',
+                                  'ESRI',
+                                  'London_Ward.shp'))
+LondonWardsMerged <- st_read(here::here('data',
+                                  'statistical-gis-boundaries-london',
+                                  'ESRI',
+                                  'London_Ward_CityMerged.shp'))%>%
+  st_transform(.,27700)
+```
+```{r}
+WardData <- read_csv(here::here('data',
+                                'ward_profiles_excel_version.csv')) %>% 
+  clean_names()
+
+LondonWardsMerged <- LondonWardsMerged %>% 
+  left_join(WardData, 
+            by = c("GSS_CODE" = "new_code"))%>%
+  dplyr::distinct(GSS_CODE, .keep_all = T)%>%
+  dplyr::select(GSS_CODE, ward_name, average_gcse_capped_point_scores_2014)
+```
+```{r}
+st_crs(LondonWardsMerged)
+```
+```{r}
+tmap_mode('view')
+tm_shape(LondonWardsMerged)+
+  tm_polygons(col=NA,alpha=0.5)+
+tm_shape(BluePlaques)+
+  tm_dots(col='blue',size=0.01)
+```
+```{r}
+plot(LondonWards)
+plot(LondonWardsMerged)
+```
+
+```{r 6.9.2 Data cleaning}
+#we might need to lose the blue plaques that fall outside of London
+summary(BluePlaques)
+
+BluePlaquesSub <- BluePlaques[LondonWardsMerged,]
+
+tm_shape(LondonWardsMerged)+
+  tm_polygons(col=NA,alpha = 0.5)+
+tm_shape(BluePlaquesSub)+
+  tm_dots(col='blue')
+```
+
+```{r 6.9.3 Data manipulation}
+library(sf)
+points_sf_joined <- LondonWardsMerged%>%
+  st_join(BluePlaquesSub)%>%
+  add_count(ward_name)%>%
+  janitor::clean_names()%>%
+  #calculate area
+  mutate(area=st_area(.))%>%
+  #then density of the points per ward
+  mutate(density=n/area)%>%
+  #select density and some other variables
+  dplyr::select(density,ward_name,gss_code,n,average_gcse_capped_point_scores_2014)
+```
+
+```{r}
+points_sf_joined <- points_sf_joined%>%
+  group_by(gss_code)%>%
+  summarise(density=first(density),
+            wardname=first(ward_name),
+            plaquecount=first(n))
+
+tm_shape(points_sf_joined) +
+    tm_polygons("density",
+        style="jenks",
+        palette="PuOr",
+        midpoint=NA,
+        popup.vars=c("wardname", "density"),
+        title="Blue Plaque Density")
+```
+
+```{r}
+#Before being able to calculate Moran’s I and any similar statistics, we need to first define a  Wij spatial weights matrix
+
+library(spdep)
+
+#first calculate the centroids of all wards in london
+coordsw <- points_sf_joined%>%
+  st_centroid()%>%
+  st_geometry()
+
+plot(coordsw,axes=TRUE)
+```
+
+```{r}
+#create a neighbours list
+LWard_nb <- points_sf_joined%>%
+  poly2nb(.,queen=T)
+
+summary(LWard_nb)
+```
+```{r}
+#plot them
+plot(LWard_nb,st_geometry(coordsw),col='red')
+#add a map underneath
+plot(points_sf_joined$geometry,add=T)
+```
+```{r}
+#create a spatial weights matrix from these weights
+Lward.lw <- LWard_nb%>%
+  nb2mat(.,style = 'B')
+
+sum(Lward.lw)
+```
+```{r}
+sum(Lward.lw[,1])
+```
+
+```{r 6.9.4Spatial autocorrelation}
+Lward.lw <- LWard_nb%>%
+  nb2listw(.,style = 'C')
+```
+
+```{r}
+I_LWard_Global_Density <- points_sf_joined%>%
+  pull(density)%>%
+  as.vector()%>%
+  moran.test(.,Lward.lw)
+
+I_LWard_Global_Density
+```
+```{r}
+C_LWard_Global_Density <- points_sf_joined%>%
+  pull(density)%>%
+  as.vector()%>%
+  geary.test(.,Lward.lw)
+
+C_LWard_Global_Density
+```
+```{r}
+G_LWard_Global_Density <- points_sf_joined%>%
+  pull(density)%>%
+  as.vector()%>%
+  globalG.test(.,Lward.lw)
+
+G_LWard_Global_Density
+```
+
+#The Moran’s I statistic = 0.67 (remember 1 = clustered, 0 = no pattern, -1 = dispersed) which shows that we have some distinctive clustering
+
+#The Geary’s C statistic = 0.41 (remember Geary’s C falls between 0 and 2; 1 means no spatial autocorrelation, <1 - positive spatial autocorrelation or similar values clustering, >1 - negative spatial autocorreation or dissimilar values clustering) which shows that similar values are clustering
+
+#The General G statistic = G > expected, so high values are tending to cluster.
+
+```{r}
+#use the localmoran functio to generate I for each ward in the city
+
+I_LWard_Local_Count <- points_sf_joined%>%
+  pull(plaquecount)%>%
+  as.vector()%>%
+  localmoran(.,Lward.lw)%>%
+  as_tibble()
+
+I_LWard_Local_Density <- points_sf_joined%>%
+  pull(density)%>%
+  as.vector()%>%
+  localmoran(.,Lward.lw)%>%
+  as_tibble()
+
+slice_head(I_LWard_Local_Density,n=5)
+```
+```{r}
+points_sf_joined <- points_sf_joined %>%
+  mutate(plaque_count_I = as.numeric(I_LWard_Local_Count$Ii))%>%
+  mutate(plaque_count_Iz =as.numeric(I_LWard_Local_Count$Z.Ii))%>%
+  mutate(density_I =as.numeric(I_LWard_Local_Density$Ii))%>%
+  mutate(density_Iz =as.numeric(I_LWard_Local_Density$Z.Ii))
 ```
 
