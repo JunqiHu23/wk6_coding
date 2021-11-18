@@ -198,6 +198,97 @@ st_geometry(BoroughMap)
 
 ```
 ```{r}
+#first extract the points from the spatial points data frame
+BluePlaquesHarrowSubPoints <- BluePlaquesHarrowSub%>%
+  coordinates(.)%>%
+  as.data.frame()
 
+#now run the dbscan analysis
+db <- BluePlaquesHarrowSubPoints%>%
+  fpc::dbscan(.,eps=700,MinPts = 4)
+
+#now plot the results
+plot(db,BluePlaquesHarrowSubPoints,main='DBSCAN Output',frame=F)
+plot(BoroughMap$geometry,add=T)
+```
+
+```{r}
+#used to find suitable eps value based on the knee in plot
+#k is no of nearest neighbours used, use min points
+library(dbscan)
+
+BluePlaquesHarrowSubPoints%>%
+  dbscan::kNNdistplot(.,k=4)
+```
+```{r}
+library(ggplot2)
+
+db
+
+db$cluster
+```
+
+```{r}
+BluePlaquesHarrowSubPoints <- BluePlaquesHarrowSubPoints%>%
+  mutate(dbcluster=db$cluster)
+
+#Next we are going to create some convex hull polygons to wrap around the points in our clusters.
+chulls <- BluePlaquesHarrowSubPoints%>%
+  group_by(dbcluster)%>%
+  dplyr::mutate(hull = 1:n(),
+                hull=factor(hull,chull(coords.x1,coords.x2)))%>%
+  arrange(hull)
+
+#As 0 isn’t actually a cluster (it’s all points that aren’t in a cluster) drop it from the dataframe
+chulls <- chulls%>%
+  filter(dbcluster>=1)
+  
+
+
+```
+
+```{r}
+dbplot <- ggplot(data=BluePlaquesHarrowSubPoints,
+                 aes(coords.x1,coords.x2,colour=dbcluster,fill=dbcluster))
+#add the points in
+dbplot <- dbplot+geom_point()
+#now the convex hulls
+dbplot <- dbplot+geom_polygon(data=chulls,
+                              aes(coords.x1,coords.x2,group=dbcluster),
+                              alpha=0.5)
+#now plot, setting the coordinates to scale correctly and as a black and white plot
+dbplot+theme_bw()+coord_equal()
+```
+
+```{r}
+#add a basemap
+#first get the bbox in lat long for Harrow
+HarrowWGSbb <- Harrow%>%
+  st_transform(.,4326)%>%
+  st_bbox()
+```
+
+```{r}
+library(OpenStreetMap)
+
+basemap <- OpenStreetMap::openmap(c(51.5549876,-0.4040502),c(51.6405356,-0.2671315),
+                         zoom=NULL,
+                         "stamen-toner")
+
+  # convert the basemap to British National Grid
+basemap_bng <- openproj(basemap, projection="+init=epsg:27700")
+```
+
+```{r}
+autoplot.OpenStreetMap(basemap_bng)+
+  geom_point(data=BluePlaquesHarrowSubPoints,
+             aes(coords.x1,coords.x2,
+                 colour=dbcluster,
+                 fill=dbcluster))+
+  geom_polygon(data=chulls,
+               aex(coords.x1,coords.x2,
+                   group=dbcluster,
+                   fill=dbcluster),
+               alpha=0.5)
 ```
 
